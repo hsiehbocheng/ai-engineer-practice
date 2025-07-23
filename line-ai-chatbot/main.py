@@ -1,6 +1,5 @@
-def main():
-    print("Hello from line-ai-chatbot!")
-
-
-if __name__ == "__main__":
-    main()
+from fastapi import FastAPI, Request, HTTPException
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import TextSendMessage
+import os, dotenv
