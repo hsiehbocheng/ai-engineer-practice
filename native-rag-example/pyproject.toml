@@ -5,11 +5,15 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "greenlet>=3.2.3",
     "ipykernel>=6.30.0",
     "langchain>=0.3.27",
     "langchain-aws>=0.2.29",
     "langchain-community>=0.3.27",
     "langchain-openai>=0.3.28",
+    "langchain-postgres>=0.0.15",
+    "langchain-text-splitters>=0.3.9",
     "langgraph>=0.5.4",
+    "pypdf>=5.9.0",
     "python-dotenv>=1.1.1",
 ]
