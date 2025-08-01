@@ -7,6 +7,12 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.116.1",
     "flask>=3.1.1",
+    "ipykernel>=6.30.0",
+    "langchain>=0.3.27",
+    "langchain-aws>=0.2.30",
+    "langchain-community>=0.3.27",
+    "langchain-openai>=0.3.28",
+    "langgraph>=0.6.2",
     "line-bot-sdk>=3.17.1",
     "python-dotenv>=1.1.1",
     "uvicorn>=0.35.0",
