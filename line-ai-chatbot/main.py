@@ -19,7 +19,7 @@ from linebot.v3.webhooks import (
     TextMessageContent
 )
 
-from ai.chatbot import call_llm
+from agent.chatbot import call_llm
 
 from dotenv import load_dotenv
 load_dotenv()

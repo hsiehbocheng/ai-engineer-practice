@@ -1,15 +1,17 @@
 from fastapi import FastAPI
-from chatbot import call_llm
-from test_mcp import main as call_llm_with_mcp
+from chatbot import main as call_llm_with_mcp
 from fastapi.responses import RedirectResponse
 import uvicorn
 
 app = FastAPI()
 
-
 @app.get("/")
 async def root():
     return RedirectResponse(url="/docs")
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
 
 @app.get("/chat")
 async def chat(query: str):
