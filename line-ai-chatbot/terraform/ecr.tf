@@ -19,7 +19,7 @@ locals {
             "rulePriority": 2,
             "description": "Keep last 10 versioned images",
             "selection": {
-                "tagStatus": "tagged",
+                "tagStatus": "any",
                 "countType": "imageCountMoreThan",
                 "countNumber": 10
             },

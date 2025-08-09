@@ -3,21 +3,21 @@ data "aws_availability_zones" "available" {
 }
 
 resource "aws_vpc" "main" {
-    cidr_block = "10.0.0.0/16"
-    enable_dns_hostnames = true
-    enable_dns_support = true
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
 
-    tags = {
-        Name = "${var.project_name}-vpc"
-    }
+  tags = {
+    Name = "${var.project_name}-vpc"
+  }
 }
 
 resource "aws_internet_gateway" "main" {
-    vpc_id = aws_vpc.main.id
+  vpc_id = aws_vpc.main.id
 
-    tags = {
-        Name = "${var.project_name}-igw"
-    }
+  tags = {
+    Name = "${var.project_name}-igw"
+  }
 }
 
 resource "aws_subnet" "public" {
@@ -25,7 +25,7 @@ resource "aws_subnet" "public" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.${count.index + 1}.0/24"
   availability_zone = data.aws_availability_zones.available.names[count.index]
-  
+
   map_public_ip_on_launch = true
 
   tags = {
@@ -73,6 +73,10 @@ resource "aws_security_group" "alb" {
 }
 
 resource "aws_security_group" "ecs_tasks" {
+  name        = "${var.project_name}-ecs-tasks-sg"
+  description = "Security group for ECS tasks"
+  vpc_id      = aws_vpc.main.id
+
   # Allow inbound from ALB
   ingress {
     from_port       = 8000
