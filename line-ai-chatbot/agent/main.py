@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from chatbot import call_llm
+from test_mcp import main as call_llm_with_mcp
 from fastapi.responses import RedirectResponse
 import uvicorn
 
@@ -12,7 +13,8 @@ async def root():
 
 @app.get("/chat")
 async def chat(query: str):
-    response = call_llm([{"role": "user", "content": query}])
+    response = await call_llm_with_mcp([{"role": "user", "content": query}])
+    response = response['messages'][-1].content
     
     return response
     
