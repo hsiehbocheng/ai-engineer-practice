@@ -1,13 +1,9 @@
-import asyncio
-import uvicorn
 from fastapi import FastAPI
+from chatbot import main as call_llm_with_mcp
 from fastapi.responses import RedirectResponse
-
-from chatbot import create_graph, call_agent
-from chatbot import checkpointer
+import uvicorn
 
 app = FastAPI()
-agent = asyncio.run(create_graph(checkpointer))
 
 @app.get("/")
 async def root():
@@ -18,8 +14,8 @@ async def health():
     return {"status": "200"}
 
 @app.get("/chat")
-async def chat(user_id: str, query: str):
-    response = await call_agent(agent, user, query)
+async def chat(query: str):
+    response = await call_llm_with_mcp([{"role": "user", "content": query}])
     response = response['messages'][-1].content
     
     return response

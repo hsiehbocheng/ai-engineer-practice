@@ -2,8 +2,6 @@ from typing import Any
 import os
 import asyncio
 import json
-import uuid
-from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
@@ -12,37 +10,33 @@ from langchain.chat_models import init_chat_model
 from dotenv import load_dotenv
 load_dotenv()
 
+
 # Initialize model
 model = init_chat_model(model="bedrock_converse:anthropic.claude-3-5-sonnet-20240620-v1:0")
+weather_url = os.getenv("WEATHER_MCP_URL", "http://localhost:9000/mcp")
 parking_url = os.getenv("PARKING_MCP_URL", "http://localhost:9001/mcp")
-checkpointer = InMemorySaver()
 
 
-async def create_graph(checkpointer):
+async def main(query: str):
     """Main function to process queries using the MCP client."""
     client = MultiServerMCPClient({
+        # "waather": {
+        #     "url": weather_url,  # Replace with the remote server's URL
+        #     "transport": "streamable_http"
+        # },
         "parking": {
             "url": parking_url,
             "transport": "streamable_http"
         }
     })
     tools = await client.get_tools()
-    agent = create_react_agent(model, tools, checkpointer=checkpointer)
-    
-    return agent
-
-
-async def call_agent(agent, user_id: str, query: str):
-    config = {"configurable": {"thread_id": user_id}}
-    response = await agent.ainvoke({"messages": query}, config=config)
+    agent = create_react_agent(model, tools)
+    response = await agent.ainvoke({"messages": query})
     return response
 
 
-if __name__ == "__main__":
-    agent = asyncio.run(create_graph(checkpointer))
 
-    user_id = str(uuid.uuid4())
-    response = asyncio.run(call_agent(agent = agent, user_id=user_id, query="hi 我是 benson"))
-    print(response['messages'][-1].content)
-    response = asyncio.run(call_agent(agent = agent, user_id=user_id, query=f"你還記得我是誰嗎"))
+if __name__ == "__main__":
+    response = asyncio.run(main(f"緯度：25.0375, 經度：121.5637 Taipei 還有哪些停車場有位置可以去停車"))
+    # response = asyncio.run(main(f"台北現在天氣如何"))
     print(response['messages'][-1].content)
