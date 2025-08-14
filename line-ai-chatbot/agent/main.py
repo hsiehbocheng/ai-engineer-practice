@@ -1,13 +1,10 @@
-import asyncio
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 
 from chatbot import create_graph, call_agent
 from chatbot import checkpointer
-from contextlib import asynccontextmanager
-
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,7 +31,6 @@ async def chat(user_id: str, query: str):
     response = response['messages'][-1].content
     
     return response
-    
     
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
