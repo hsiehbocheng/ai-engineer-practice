@@ -1,3 +1,5 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo  # Python 3.9+
 import json
 
 def normalize_llm_text(s: str) -> str:
@@ -11,3 +13,7 @@ def normalize_llm_text(s: str) -> str:
     # 統一換行
     s = s.replace('\r\n', '\n')
     return s
+
+def event_hour_yyyymmddhh(event_ts_ms: int, tz: str = "Asia/Taipei") -> str:
+    dt = datetime.fromtimestamp(event_ts_ms / 1000, ZoneInfo(tz))
+    return dt.strftime("%Y%m%d%H")

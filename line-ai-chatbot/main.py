@@ -1,8 +1,8 @@
 import os
 import re
 import requests
-from flask import Flask, request, abort
 
+from flask import Flask, request, abort
 from linebot.v3 import (
     WebhookHandler
 )
@@ -28,13 +28,15 @@ from linebot.v3.messaging.models import (
     ShowLoadingAnimationRequest
 )
 from dotenv import load_dotenv
-from utils.utils import normalize_llm_text
+from utils.utils import normalize_llm_text, event_hour_yyyymmddhh
+import uuid
 
 load_dotenv()
 app = Flask(__name__)
 configuration = Configuration(access_token=os.environ['LINE_CHANNEL_ACCESS_TOKEN'])
 handler = WebhookHandler(os.environ['LINE_CHANNEL_SECRET'])
 llm_api_base = os.getenv("LLM_API_BASE", 'http://localhost:8000')
+session_uuid = str(uuid.uuid4())
 
 def call_llm(user_id: str, query: str):
     try:
@@ -68,8 +70,9 @@ def callback():
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     with ApiClient(configuration) as api_client:
-        
+        hour_suffix = event_hour_yyyymmddhh(event.timestamp)
         user_id = event.source.user_id
+        user_id_with_session = f"{user_id}:{hour_suffix}:{session_uuid}"
         line_bot_api = MessagingApi(api_client)
 
         # show loading animation
@@ -83,7 +86,7 @@ def handle_message(event):
         except Exception as e:
             app.logger.warning('show loading animation faild, please wait ...')
         
-        reply_text = call_llm(user_id=user_id, query=event.message.text)
+        reply_text = call_llm(user_id=user_id_with_session, query=event.message.text)
         reply_text = normalize_llm_text(reply_text)
         line_bot_api.reply_message_with_http_info(
             ReplyMessageRequest(
@@ -95,7 +98,9 @@ def handle_message(event):
 @handler.add(MessageEvent, message=LocationMessageContent)
 def handle_location(event):
     with ApiClient(configuration) as api_client:
+        hour_suffix = event_hour_yyyymmddhh(event.timestamp)
         user_id = event.source.user_id
+        user_id_with_session = f"{user_id}:{hour_suffix}:{session_uuid}"
         line_bot_api = MessagingApi(api_client)
         
         lat = event.message.latitude
@@ -113,7 +118,7 @@ def handle_location(event):
         except Exception as e:
             app.logger.warning('show loading animation faild, please wait ...')
         
-        reply_text = call_llm(user_id=user_id, 
+        reply_text = call_llm(user_id=user_id_with_session, 
                               query=f"緯度：{lat}, 經度：{lon} {city} {address} 附近有什麼停車場")
         
         reply_text = normalize_llm_text(reply_text)
