@@ -20,8 +20,8 @@ dependencies = [
     "langgraph-checkpoint-postgres>=2.0.23",
     "langgraph-cli[inmem]>=0.3.6",
     "line-bot-sdk>=3.17.1",
+    "mangum>=0.19.0",
     "psycopg[binary,pool]>=3.2.9",
     "python-dotenv>=1.1.1",
-    "serverless-wsgi>=3.1.0",
     "uvicorn>=0.35.0",
 ]

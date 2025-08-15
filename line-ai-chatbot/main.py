@@ -29,25 +29,23 @@ from linebot.v3.messaging.models import (
 )
 from dotenv import load_dotenv
 from utils.utils import normalize_llm_text, event_hour_yyyymmddhh
-import uuid
 
 load_dotenv()
 app = Flask(__name__)
 configuration = Configuration(access_token=os.environ['LINE_CHANNEL_ACCESS_TOKEN'])
 handler = WebhookHandler(os.environ['LINE_CHANNEL_SECRET'])
 llm_api_base = os.getenv("LLM_API_BASE", 'http://localhost:8000')
-session_uuid = str(uuid.uuid4())
 
 def call_llm(user_id: str, query: str):
     try:
         r = requests.get(f"{llm_api_base}/chat", 
                          params={"user_id": user_id, "query": query}, 
-                         timeout=30)
+                         timeout=60)
         r.raise_for_status()
         return r.text.strip()
     except requests.exceptions.RequestException as e:
-        app.logger.error(f"Error calling LLM API: {e}")
-        return f"Error: {e}"
+        app.logger.error(f"有一些問題發生 ... 請稍後再試")
+        return f"有一些問題發生 ... 請稍後再試"
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -72,7 +70,7 @@ def handle_message(event):
     with ApiClient(configuration) as api_client:
         hour_suffix = event_hour_yyyymmddhh(event.timestamp)
         user_id = event.source.user_id
-        user_id_with_session = f"{user_id}:{hour_suffix}:{session_uuid}"
+        user_id_with_session = f"{user_id}:{hour_suffix}"
         line_bot_api = MessagingApi(api_client)
 
         # show loading animation
@@ -80,7 +78,7 @@ def handle_message(event):
             line_bot_api.show_loading_animation(
                 ShowLoadingAnimationRequest(
                     chat_id=user_id,
-                    loadingSeconds=30
+                    loadingSeconds=60
                 )
             )
         except Exception as e:
@@ -100,7 +98,7 @@ def handle_location(event):
     with ApiClient(configuration) as api_client:
         hour_suffix = event_hour_yyyymmddhh(event.timestamp)
         user_id = event.source.user_id
-        user_id_with_session = f"{user_id}:{hour_suffix}:{session_uuid}"
+        user_id_with_session = f"{user_id}:{hour_suffix}"
         line_bot_api = MessagingApi(api_client)
         
         lat = event.message.latitude
@@ -112,7 +110,7 @@ def handle_location(event):
             line_bot_api.show_loading_animation(
                 ShowLoadingAnimationRequest(
                     chat_id=user_id,
-                    loadingSeconds=30
+                    loadingSeconds=60
                 )
             )
         except Exception as e:
