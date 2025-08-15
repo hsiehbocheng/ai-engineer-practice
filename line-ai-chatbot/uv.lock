@@ -1294,6 +1294,7 @@ dependencies = [
     { name = "line-bot-sdk" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "python-dotenv" },
+    { name = "serverless-wsgi" },
     { name = "uvicorn" },
 ]
 
@@ -1316,6 +1317,7 @@ requires-dist = [
     { name = "line-bot-sdk", specifier = ">=3.17.1" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.9" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
+    { name = "serverless-wsgi", specifier = ">=3.1.0" },
     { name = "uvicorn", specifier = ">=0.35.0" },
 ]
 
@@ -2401,6 +2403,17 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6d/05/d52bf1e65044b4e5e27d4e63e8d1579dbdec54fce685908ae09bc3720030/s3transfer-0.13.1.tar.gz", hash = "sha256:c3fdba22ba1bd367922f27ec8032d6a1cf5f10c934fb5d68cf60fd5a23d936cf", size = 150589 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/4f/d073e09df851cfa251ef7840007d04db3293a0482ce607d2b993926089be/s3transfer-0.13.1-py3-none-any.whl", hash = "sha256:a981aa7429be23fe6dfc13e80e4020057cbab622b08c0315288758d67cabc724", size = 85308 },
+]
+
+[[package]]
+name = "serverless-wsgi"
+version = "3.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "werkzeug" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/b0/9b3fb4001807cf82fda139ce7db29a32b2a19005d7c6a0cd0c74776b8b4a/serverless_wsgi-3.1.0-py2.py3-none-any.whl", hash = "sha256:c2584067e1c2b0e909f83b923d3ab3f19cc645133d53bf203ca249fd77e6baec", size = 10774 },
 ]
 
 [[package]]

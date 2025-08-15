@@ -22,5 +22,6 @@ dependencies = [
     "line-bot-sdk>=3.17.1",
     "psycopg[binary,pool]>=3.2.9",
     "python-dotenv>=1.1.1",
+    "serverless-wsgi>=3.1.0",
     "uvicorn>=0.35.0",
 ]
