@@ -1,4 +1,6 @@
 provider "aws" {
   profile = "default"
-  region  = "ap-northeast-1"
+  region  = var.aws_region
 }
+
+data "aws_caller_identity" "current" {}

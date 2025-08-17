@@ -185,8 +185,7 @@ def call_llm(user_id: str, query: str) -> str:
     try:
         r = _requests_session.get(
             f"{llm_api_base}/chat",
-            params={"user_id": user_id, "query": query},
-            timeout=(3, 25),  # 3s 連線、25s 讀取（可依實況調整）
+            params={"user_id": user_id, "query": query}
         )
         r.raise_for_status()
         return r.text.strip()

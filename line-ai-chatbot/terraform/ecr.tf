@@ -31,34 +31,21 @@ locals {
     })
 }
 
-# ECR Repository for Agent Service
-resource "aws_ecr_repository" "agent" {
-    name = "${var.project_name}-agent"
-    image_tag_mutability = "MUTABLE"
-    force_delete         = true
-
-    image_scanning_configuration {
-    scan_on_push = true
-  }
+# Use existing ECR repositories (data sources)
+data "aws_ecr_repository" "agent" {
+  name = var.agent_ecr_repo_name
 }
 
-# ECR Repository for MCP Service
-resource "aws_ecr_repository" "weather_mcp" {
-  name                 = "${var.project_name}-weather-mcp"
-  image_tag_mutability = "MUTABLE"
-  force_delete         = true
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
+data "aws_ecr_repository" "parking_mcp" {
+  name = var.parking_mcp_ecr_repo_name
 }
 
 resource "aws_ecr_lifecycle_policy" "agent_policy" {
-  repository = aws_ecr_repository.agent.name
+  repository = data.aws_ecr_repository.agent.name
   policy     = local.ecr_lifecycle_policy
 }
 
-resource "aws_ecr_lifecycle_policy" "weather_mcp_policy" {
-  repository = aws_ecr_repository.weather_mcp.name
+resource "aws_ecr_lifecycle_policy" "parking_mcp_policy" {
+  repository = data.aws_ecr_repository.parking_mcp.name
   policy     = local.ecr_lifecycle_policy
 }

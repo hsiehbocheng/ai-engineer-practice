@@ -31,12 +31,12 @@ resource "aws_cloudwatch_log_group" "agent" {
   }
 }
 
-resource "aws_cloudwatch_log_group" "weather_mcp" {
-  name              = "/ecs/${var.project_name}-weather-mcp"
+resource "aws_cloudwatch_log_group" "parking_mcp" {
+  name              = "/ecs/${var.project_name}-parking-mcp"
   retention_in_days = 7
 
   tags = {
-    Name = "${var.project_name}-weather-mcp-log-group"
+    Name = "${var.project_name}-parking-mcp-log-group"
   }
 }
 
@@ -53,7 +53,7 @@ resource "aws_ecs_task_definition" "agent" {
   container_definitions = jsonencode([
     {
       name      = "agent"
-      image     = "${aws_ecr_repository.agent.repository_url}:latest"
+      image     = "${data.aws_ecr_repository.agent.repository_url}:latest"
       essential = true
 
       portMappings = [
@@ -67,9 +67,15 @@ resource "aws_ecs_task_definition" "agent" {
 
       environment = [
         {
-          name  = "WEATHER_MCP_URL"
-          value = "http://weather-mcp:9000/mcp"
-        }
+          name  = "PARKING_MCP_URL"
+          value = "http://parking-mcp:9001/mcp"
+        },
+        { name = "LANGSMITH_TRACING", value = "true" },
+        { name = "LANGSMITH_PROJECT", value = var.project_name }
+      ]
+
+      secrets = [
+        { name = "LANGSMITH_API_KEY", valueFrom = aws_secretsmanager_secret.langsmith_api_key.arn }
       ]
 
       logConfiguration = {
@@ -99,27 +105,27 @@ resource "aws_ecs_task_definition" "agent" {
   ]
 }
 
-# Weather MCP Task Definition
-resource "aws_ecs_task_definition" "weather_mcp" {
-  family                   = "${var.project_name}-weather-mcp"
+# Parking MCP Task Definition
+resource "aws_ecs_task_definition" "parking_mcp" {
+  family                   = "${var.project_name}-parking-mcp"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = var.weather_mcp_cpu
-  memory                   = var.weather_mcp_memory
+  cpu                      = var.parking_mcp_cpu
+  memory                   = var.parking_mcp_memory
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_task_role.arn
 
   container_definitions = jsonencode([
     {
-      name      = "weather-mcp"
-      image     = "${aws_ecr_repository.weather_mcp.repository_url}:latest"
+      name      = "parking-mcp"
+      image     = "${data.aws_ecr_repository.parking_mcp.repository_url}:latest"
       essential = true
 
       portMappings = [
         { 
-            containerPort = 9000, 
+            containerPort = 9001, 
             protocol = "tcp",
-            name = "weather-9000",
+            name = "parking-9001",
             appProtocol = "http"
         }
       ]
@@ -127,27 +133,32 @@ resource "aws_ecs_task_definition" "weather_mcp" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.weather_mcp.name
+          awslogs-group         = aws_cloudwatch_log_group.parking_mcp.name
           awslogs-region        = var.aws_region
           awslogs-stream-prefix = "ecs"
         }
       }
+
+      secrets = [
+        { name = "TDX_APP_ID",  valueFrom = aws_secretsmanager_secret.tdx_app_id.arn },
+        { name = "TDX_APP_KEY", valueFrom = aws_secretsmanager_secret.tdx_app_key.arn }
+      ]
     }
   ])
 
   tags = {
-    Name = "${var.project_name}-weather-mcp-task-definition"
+    Name = "${var.project_name}-parking-mcp-task-definition"
   }
 
   depends_on = [
-    aws_cloudwatch_log_group.weather_mcp
+    aws_cloudwatch_log_group.parking_mcp
   ]
 }
 
-resource "aws_ecs_service" "weather_mcp" {
-    name = "${var.project_name}-weather-mcp-svc"
+resource "aws_ecs_service" "parking_mcp" {
+    name = "${var.project_name}-parking-mcp-svc"
     cluster = aws_ecs_cluster.main.id
-    task_definition = aws_ecs_task_definition.weather_mcp.arn
+    task_definition = aws_ecs_task_definition.parking_mcp.arn
     desired_count = 1
     launch_type = "FARGATE"
 
@@ -162,11 +173,11 @@ resource "aws_ecs_service" "weather_mcp" {
         namespace = aws_service_discovery_private_dns_namespace.main.arn
 
         service {
-            port_name = "weather-9000"
-            discovery_name = "weather-mcp"
+            port_name = "parking-9001"
+            discovery_name = "parking-mcp"
             client_alias {
-                dns_name = "weather-mcp"
-                port = 9000
+                dns_name = "parking-mcp"
+                port = 9001
             }
         }
     }
@@ -174,7 +185,7 @@ resource "aws_ecs_service" "weather_mcp" {
     enable_execute_command = true
 
     tags = {
-        Name = "${var.project_name}-weather-mcp-service"
+        Name = "${var.project_name}-parking-mcp-service"
     }
 }
 
