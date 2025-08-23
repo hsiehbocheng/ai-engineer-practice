@@ -25,5 +25,3 @@ cd "$TF_DIR"
 terraform init
 terraform plan
 terraform apply
-
-

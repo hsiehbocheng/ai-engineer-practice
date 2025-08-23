@@ -18,7 +18,7 @@
 # HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 #     CMD curl -f http://localhost:8000/health || exit 1
 
-# CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM python:3.12-slim
 
@@ -53,7 +53,7 @@ HEALTHCHECK --interval=60s --timeout=60s --start-period=5s --retries=3 \
   CMD curl -fsS http://localhost:8000/health || exit 1
 
 # 用 Gunicorn 托管 Uvicorn worker（可調整 workers / timeout）
-CMD gunicorn main:app \
+CMD gunicorn app:app \
   -k uvicorn.workers.UvicornWorker \
   --bind 0.0.0.0:8000 \
   --workers ${GUNICORN_WORKERS} \

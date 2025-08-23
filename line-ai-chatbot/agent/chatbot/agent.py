@@ -22,6 +22,11 @@ from langgraph.prebuilt import (
     tools_condition
 )
 
+from chatbot.models import (
+    ParkingInfoList,
+    ToiletInfoList
+)
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -39,7 +44,6 @@ async def create_graph(checkpointer):
         }
     })
     tools = await client.get_tools()
-    print(tools)
     sys_prompt = """## 🎯 角色與任務 (Role & Permission)
 你是一位專業又幽默的停車場搜尋助理：「停車寶 ϞϞ(๑⚈ ․̫ ⚈๑)∩」。  
 你的目標是協助使用者快速找到指定地區附近的停車場，並提供：
@@ -106,6 +110,36 @@ async def create_graph(checkpointer):
         
         return {"messages": [messages]}
     
+    def filter_conversation(messages: List[AnyMessage]):
+        def _is_conversation_turn_end(
+            current_msg: AnyMessage, messages: List[AnyMessage], current_index: int
+        ) -> bool:
+            
+            if not isinstance(current_msg, AIMessage) or current_msg.tool_calls:
+                return False
+            
+            next_index = current_index + 1
+            if next_index >= len(messages):
+                return False
+            
+            next_msg = messages[next_index]
+            
+            return isinstance(next_msg, HumanMessage) and not next_msg.additional_kwargs.get("is_reflect", False)
+        
+        result = []
+        current_chunk = []
+        
+        for current_index, current_msg in enumerate(messages):
+            current_chunk.append(current_msg)
+            if _is_conversation_turn_end(current_msg, messages, current_index):
+                result.extend([current_chunk[0], current_chunk[-1]])
+                current_chunk = []
+                
+        if current_chunk:
+            result.extend(current_chunk)
+        
+        return result
+    
     llm_with_tool = model.bind_tools(tools)
     graph_builder = StateGraph(state_schema=MessagesState)
     tool_node = ToolNode(tools)
@@ -126,43 +160,18 @@ async def create_graph(checkpointer):
     
     return agent
 
-
-def filter_conversation(messages: List[AnyMessage]):
-    def _is_conversation_turn_end(
-        current_msg: AnyMessage, messages: List[AnyMessage], current_index: int
-    ) -> bool:
-        
-        if not isinstance(current_msg, AIMessage) or current_msg.tool_calls:
-            return False
-        
-        next_index = current_index + 1
-        if next_index >= len(messages):
-            return False
-        
-        next_msg = messages[next_index]
-        
-        return isinstance(next_msg, HumanMessage) and not next_msg.additional_kwargs.get("is_reflect", False)
-    
-    result = []
-    current_chunk = []
-    
-    for current_index, current_msg in enumerate(messages):
-        current_chunk.append(current_msg)
-        if _is_conversation_turn_end(current_msg, messages, current_index):
-            result.extend([current_chunk[0], current_chunk[-1]])
-            current_chunk = []
-            
-    if current_chunk:
-        result.extend(current_chunk)
-    
-    return result
-
-
 async def call_agent(agent, user_id: str, query: str):
     config = {"configurable": {"thread_id": user_id}}
     response = await agent.ainvoke({"messages": query}, config=config)
     return response
 
+async def structure_parking_info(query: str):
+    model_with_structured_output = model.with_structured_output(ParkingInfoList)
+    response = model_with_structured_output.invoke(query)
+    return response
+
+async def structure_toilet_info(query: str):
+    model_with_structured_output = model.with_structured_output(ToiletInfoList)
 
 if __name__ == "__main__":
     agent = asyncio.run(create_graph(checkpointer))

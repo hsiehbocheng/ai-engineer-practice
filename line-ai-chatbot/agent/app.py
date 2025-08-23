@@ -2,9 +2,13 @@ import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
+from fastapi import Body
 
-from chatbot import create_graph, call_agent
-from chatbot import checkpointer
+from chatbot.agent import create_graph, call_agent
+from chatbot.agent import structure_parking_info, structure_toilet_info
+from chatbot.agent import checkpointer
+
+from chatbot.models import ParkingInfoList, ToiletInfoList
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,6 +35,12 @@ async def chat(user_id: str, query: str):
     response = response['messages'][-1].content
     
     return response
+
+@app.post("/get_parking_info", response_model=ParkingInfoList)
+async def get_parking_info(query: str = Body(...)):
+    response = await structure_parking_info(query)
+    
+    return response
     
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
