@@ -40,22 +40,25 @@ from utils.utils import normalize_llm_text, event_hour_yyyymmddhh
 # 基本設定
 # -----------------------------------------------------------------------------
 load_dotenv()
-app = Flask(__name__)
 
-configuration = Configuration(access_token=os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
-handler = WebhookHandler(os.environ["LINE_CHANNEL_SECRET"])
+line_channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+line_channel_secret = os.getenv("LINE_CHANNEL_SECRET")
 llm_api_base = os.getenv("LLM_API_BASE", "http://localhost:8000")
 gcp_credentials_path = os.getenv("GCP_CREDENTIALS_PATH")
 gcp_sheet_key = os.getenv("GCP_SHEET_KEY")
 poop_img_url = os.getenv("POOP_IMG_URL")
 parking_img_url = os.getenv("PARKING_IMG_URL")
 
+# Line bot init
+app = Flask(__name__)
+configuration = Configuration(access_token=line_channel_access_token)
+handler = WebhookHandler(line_channel_secret)
+
 # 背景執行緒池（依你的流量調整）
 executor = ThreadPoolExecutor(max_workers=8)
 
 # 共用 requests Session（連線重用、較省時）
 _requests_session = requests.Session()
-
 
 # 連線到 Google Sheet
 scope = ['https://spreadsheets.google.com/feeds']
