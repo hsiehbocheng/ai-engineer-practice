@@ -6,12 +6,12 @@ from fastapi.responses import RedirectResponse
 from fastapi import Body
 from langchain_core.messages import ToolMessage, AIMessage
 
-from chatbot.agent import create_graph, call_agent
+from chatbot.agent import create_graph, call_agent, call_llm
 from chatbot.agent import (
     structure_parking_info, 
     structure_toilet_info, 
     structure_agent_response,
-    summarize_agent_response
+    summarize_agent_response,
 )
 from chatbot.agent import checkpointer
 
@@ -42,6 +42,12 @@ async def chat(user_id: str, query: str):
     response = response['messages'][-1].content
     
     return response
+
+@app.post("/invoke", response_model=str)
+async def invoke(query: str = Body(...)):
+    response = await call_agent(query)
+    
+    return response.content
 
 @app.post("/get_parking_info", response_model=ParkingInfoList)
 async def get_parking_info(query: str = Body(...)):

@@ -199,6 +199,10 @@ async def call_agent(agent, user_id: str, query: str):
     response = await agent.ainvoke({"messages": query}, config=config)
     return response
 
+async def call_llm(query: str):
+    response = await model.ainvoke(query)
+    return response
+
 async def structure_parking_info(query: str):
     model_with_structured_output = model.with_structured_output(ParkingInfoList)
     response = model_with_structured_output.invoke(query)

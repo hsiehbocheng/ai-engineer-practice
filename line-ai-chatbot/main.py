@@ -1,8 +1,12 @@
+from curses import tigetflag
 import os
-import re
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote, urlparse, parse_qsl, urlencode, urlunparse
+
+import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
@@ -25,6 +29,9 @@ from linebot.v3.messaging.models import (
     PushMessageRequest,
     FlexMessage,
     FlexContainer,
+    QuickReply,
+    QuickReplyItem,
+    MessageAction,
 )
 from dotenv import load_dotenv
 from utils.utils import normalize_llm_text, event_hour_yyyymmddhh
@@ -38,6 +45,8 @@ app = Flask(__name__)
 configuration = Configuration(access_token=os.environ["LINE_CHANNEL_ACCESS_TOKEN"])
 handler = WebhookHandler(os.environ["LINE_CHANNEL_SECRET"])
 llm_api_base = os.getenv("LLM_API_BASE", "http://localhost:8000")
+gcp_credentials_path = os.getenv("GCP_CREDENTIALS_PATH")
+gcp_sheet_key = os.getenv("GCP_SHEET_KEY")
 
 # 背景執行緒池（依你的流量調整）
 executor = ThreadPoolExecutor(max_workers=8)
@@ -45,6 +54,12 @@ executor = ThreadPoolExecutor(max_workers=8)
 # 共用 requests Session（連線重用、較省時）
 _requests_session = requests.Session()
 
+
+# 連線到 Google Sheet
+scope = ['https://spreadsheets.google.com/feeds']
+creds = ServiceAccountCredentials.from_json_keyfile_name(gcp_credentials_path, scope)
+client = gspread.authorize(credentials=creds)
+sheet = client.open_by_key(gcp_sheet_key).sheet1
 
 def _ensure_valid_action_uri(url: str) -> str:
     try:
@@ -111,7 +126,7 @@ def _parking_flex_messages_wrapper(data: list[dict]) -> list[dict]:
             'footer': {
                 'type': 'box', 'layout': 'vertical', 'contents': [
                     {'type': 'button', 'style': 'link', 'height': 'sm',
-                     'action': {'type': 'uri', 'label': 'Google Map', 'uri': google_maps_url}}
+                     'action': {'type': 'uri', 'label': 'Google Map 🗺️', 'uri': google_maps_url}}
                 ]
             }
         }
@@ -149,7 +164,7 @@ def _toilet_flex_messages_wrapper(data: list[dict]) -> list[dict]:
             'type': 'bubble',
             'hero': {
                 'type': 'image',
-                'url': 'https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png',
+                'url': 'https://github.com/hsiehbocheng/ai-engineer-practice/blob/fa0a5103e94ff6dafac9e6e8bba3e9485b4fb4d0/line-ai-chatbot/img/image.png',
                 'size': 'full',
                 'aspectRatio': '20:13',
                 'aspectMode': 'cover'
@@ -162,7 +177,15 @@ def _toilet_flex_messages_wrapper(data: list[dict]) -> list[dict]:
             'footer': {
                 'type': 'box', 'layout': 'vertical', 'contents': [
                     {'type': 'button', 'style': 'link', 'height': 'sm',
-                     'action': {'type': 'uri', 'label': 'Google Map', 'uri': google_maps_url}}
+                     'action': {'type': 'uri', 'label': 'Google Map 🗺️', 'uri': google_maps_url}},
+                    {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "我要評分💩",
+                        "text": f"評分準備|{item['toilet_name']}|{item['toilet_address']}"
+                    }
+                }
                 ]
             }
         }
@@ -298,24 +321,118 @@ def handle_message(event):
     user_id = event.source.user_id
     hour_suffix = event_hour_yyyymmddhh(event.timestamp)
     user_id_with_session = f"{user_id}:{hour_suffix}"
-
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        
-        try:
-            line_bot_api.show_loading_animation(
-                ShowLoadingAnimationRequest(chat_id=user_id, loadingSeconds=60)
+    query = event.message.text
+    
+    if query.startswith("評分準備|"):
+        _, toilet_name, toilet_address = query.split("|")
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            quick_reply = QuickReply(items=[
+                QuickReplyItem(action=MessageAction(label="💩", text=f"評分 {toilet_name} 💩")),
+                QuickReplyItem(action=MessageAction(label="💩💩", text=f"評分 {toilet_name} 💩💩")),
+                QuickReplyItem(action=MessageAction(label="💩💩💩", text=f"評分 {toilet_name} 💩💩💩")),
+                QuickReplyItem(action=MessageAction(label="💩💩💩💩", text=f"評分 {toilet_name} 💩💩💩💩")),
+                QuickReplyItem(action=MessageAction(label="💩💩💩💩💩", text=f"評分 {toilet_name} 💩💩💩💩💩")),
+            ])
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=f"你選擇評分的廁所是：「{toilet_name}」，請給分（💩越多越讚）：", quick_reply=quick_reply)]
+                )
             )
-        except Exception:
-            app.logger.warning("show loading animation failed, continue ...")
+    elif query.startswith("評分 "):
+        try:
+            score_str = query.split(" ")[2]
+            score = int(score_str.count("💩"))
+            toilet_name = query.split(" ")[1]
+            app.logger.info(f"評分: {score}")
+            score_messages = f"感謝您對「{toilet_name}」的評分！你的評分是：💩 {score} 分，對於其他人來說非常有幫助！"
+            sheet.append_row([toilet_name, score])
 
-    # 把重運算丟到背景（ThreadPoolExecutor）
-    executor.submit(
-        process_and_push_text,
-        user_id,
-        user_id_with_session,
-        event.message.text,
-    )
+            with ApiClient(configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=score_messages)]
+                    )
+                )
+
+        except Exception as e:
+            app.logger.error(f"評分發生錯誤: {str(e)}")
+            with ApiClient(configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=f"評分發生錯誤: {str(e)}")]
+                    )
+                )
+    elif query == "查看排行":
+        data = sheet.get_all_values()
+        if len(data) > 1:  # 有資料
+            df = pd.DataFrame(data[1:], columns=data[0])
+            df["評分"] = df["評分"].astype(float)
+            avg_score = df.groupby("地點")["評分"].mean().reset_index()
+            avg_score = avg_score.sort_values("評分", ascending=False).head(5)
+
+            bubbles = []
+            for idx, row in avg_score.iterrows():
+                bubble = {
+                    "type": "bubble",
+                    "body": {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {"type": "text", "text": f"🏆 No.{len(bubbles)+1}", "weight": "bold", "size": "lg"},
+                            {"type": "text", "text": row["地點"], "weight": "bold", "size": "xl", "wrap": True},
+                            {"type": "text", "text": f"平均分數：{round(row['評分'],1)} 💩", "size": "md", "color": "#666666"}
+                        ]
+                    }
+                }
+                bubbles.append(bubble)
+
+            with ApiClient(configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                if bubbles:
+                    flex_message = FlexMessage(
+                        alt_text="廁所排行榜 💩", 
+                        contents=FlexContainer.from_dict({"type": "carousel", "contents": bubbles})
+                    )
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[flex_message]
+                        )
+                    )
+                else:
+                    line_bot_api.reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text="目前還沒有任何評分紀錄。")]
+                        )
+                    )
+            return
+    
+    
+    else:
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            
+            try:
+                line_bot_api.show_loading_animation(
+                    ShowLoadingAnimationRequest(chat_id=user_id, loadingSeconds=60)
+                )
+            except Exception:
+                app.logger.warning("show loading animation failed, continue ...")
+
+        # 把重運算丟到背景（ThreadPoolExecutor）
+        executor.submit(
+            process_and_push_text,
+            user_id,
+            user_id_with_session,
+            query,
+        )
 
 
 @handler.add(MessageEvent, message=LocationMessageContent)
