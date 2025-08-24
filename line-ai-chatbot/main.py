@@ -47,6 +47,8 @@ handler = WebhookHandler(os.environ["LINE_CHANNEL_SECRET"])
 llm_api_base = os.getenv("LLM_API_BASE", "http://localhost:8000")
 gcp_credentials_path = os.getenv("GCP_CREDENTIALS_PATH")
 gcp_sheet_key = os.getenv("GCP_SHEET_KEY")
+poop_img_url = os.getenv("POOP_IMG_URL")
+parking_img_url = os.getenv("PARKING_IMG_URL")
 
 # 背景執行緒池（依你的流量調整）
 executor = ThreadPoolExecutor(max_workers=8)
@@ -108,7 +110,7 @@ def _parking_flex_messages_wrapper(data: list[dict]) -> list[dict]:
             'type': 'bubble',
             'hero': {
                 'type': 'image',
-                'url': 'https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png',
+                'url': parking_img_url,
                 'size': 'full',
                 'aspectRatio': '20:13',
                 'aspectMode': 'cover'
@@ -164,7 +166,7 @@ def _toilet_flex_messages_wrapper(data: list[dict]) -> list[dict]:
             'type': 'bubble',
             'hero': {
                 'type': 'image',
-                'url': 'https://github.com/hsiehbocheng/ai-engineer-practice/blob/fa0a5103e94ff6dafac9e6e8bba3e9485b4fb4d0/line-ai-chatbot/img/image.png',
+                'url': poop_img_url,
                 'size': 'full',
                 'aspectRatio': '20:13',
                 'aspectMode': 'cover'
