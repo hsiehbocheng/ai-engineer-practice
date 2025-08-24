@@ -2,7 +2,7 @@ import os
 import re
 import requests
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, parse_qsl, urlencode, urlunparse
 
 from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
@@ -46,6 +46,22 @@ executor = ThreadPoolExecutor(max_workers=8)
 _requests_session = requests.Session()
 
 
+def _ensure_valid_action_uri(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return f"https://maps.google.com/maps?q={quote(url, safe='')}"
+        safe_path = quote(parsed.path, safe='/-._~')
+        encoded_query = urlencode(
+            parse_qsl(parsed.query, keep_blank_values=True),
+            doseq=True,
+            quote_via=quote
+        )
+        return urlunparse((parsed.scheme, parsed.netloc, safe_path, parsed.params, encoded_query, parsed.fragment))
+    except Exception:
+        return f"https://maps.google.com/maps?q={quote(url, safe='')}"
+
+
 def call_agent(user_id: str, query: str) -> str:
     """
     呼叫你的 LLM 服務。
@@ -63,62 +79,144 @@ def call_agent(user_id: str, query: str) -> str:
         app.logger.error(f"LLM 呼叫失敗：{e}")
         return "有一些問題發生 ... 請稍後再試"
 
+def _parking_flex_messages_wrapper(data: list[dict]) -> list[dict]:
+    bubbles = []
+    for item in data:
+        google_maps_url = item.get('google_maps_url', '')
+        parking_name = item.get('parking_name', '停車場')
 
-def get_parking_info(user_id: str, query: str) -> str:
-    
-    def _flex_messages_wrapper(data: list[dict]) -> list[dict]:
-        bubbles = []
-        for item in data:
-            # 驗證並修正 Google Maps URL
-            google_maps_url = item.get('google_maps_url', '')
-            parking_name = item.get('parking_name', '停車場')
-            
-            # 統一使用簡單且可靠的 Google Maps 搜尋 URL
-            # LINE Bot 對某些 URL 格式敏感，使用最基本的格式
-            encoded_name = quote(parking_name, safe='')
-            google_maps_url = f"https://maps.google.com/maps?q={encoded_name}"
-                
-            bubble = {
-                'type': 'bubble',
-                'hero': {
-                    'type': 'image',
-                    'url': 'https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png',
-                    'size': 'full',
-                    'aspectRatio': '20:13',
-                    'aspectMode': 'cover'
-                },
-                'body': {
-                    'type': 'box',
-                    'layout': 'vertical',
-                    'contents': [
-                        {'type': 'text', 'text': item['parking_name'], 'weight': 'bold', 'size': 'xl'},
-                        {'type': 'text', 'text': f"💫 類型：{item['parking_type']}", "size": "sm", "color": "#666666"},
-                        {'type': 'text', 'text': f"✅ 空位：{item['available_seats']}", "size": "sm", "color": "#666666"},
-                        {'type': 'text', 'text': f"💰 費率：{item['parking_fee_description']}", "size": "sm", "color": "#666666"},
-                    ]
-                },
-                "footer": {"type": "box", "layout": "vertical", "contents": [
-                    {"type": "button", "style": "link", "height": "sm",
-                    "action": {"type": "uri", "label": "Google Map", "uri": google_maps_url}}
-                ]}
+        encoded_name = quote(parking_name, safe='')
+        google_maps_url = google_maps_url or f"https://maps.google.com/maps?q={encoded_name}"
+        google_maps_url = _ensure_valid_action_uri(google_maps_url)
+
+        bubble = {
+            'type': 'bubble',
+            'hero': {
+                'type': 'image',
+                'url': 'https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png',
+                'size': 'full',
+                'aspectRatio': '20:13',
+                'aspectMode': 'cover'
+            },
+            'body': {
+                'type': 'box',
+                'layout': 'vertical',
+                'contents': [
+                    {'type': 'text', 'text': item.get('parking_name', '停車場'), 'weight': 'bold', 'size': 'xl'},
+                    {'type': 'text', 'text': f"💫 類型：{item.get('parking_type', '-')}", 'size': 'sm', 'color': '#666666'},
+                    {'type': 'text', 'text': f"✅ 空位：{item.get('available_seats', '-')}", 'size': 'sm', 'color': '#666666'},
+                    {'type': 'text', 'text': f"💰 費率：{item.get('parking_fee_description', '-')}", 'size': 'sm', 'color': '#666666'},
+                ]
+            },
+            'footer': {
+                'type': 'box', 'layout': 'vertical', 'contents': [
+                    {'type': 'button', 'style': 'link', 'height': 'sm',
+                     'action': {'type': 'uri', 'label': 'Google Map', 'uri': google_maps_url}}
+                ]
             }
-            bubbles.append(bubble)
-        return bubbles
+        }
+        bubbles.append(bubble)
+    return bubbles
 
+def _toilet_flex_messages_wrapper(data: list[dict]) -> list[dict]:
+    bubbles = []
+    for item in data:
+        toilet_name = item.get('toilet_name', '公廁')
+        # 使用名稱或地址做為搜尋字串
+        search_text = item.get('toilet_address') or toilet_name
+        encoded = quote(search_text, safe='')
+        google_maps_url = item.get('toilet_google_maps_url') or f"https://maps.google.com/maps?q={encoded}"
+        google_maps_url = _ensure_valid_action_uri(google_maps_url)
+
+        contents = [
+            {'type': 'text', 'text': toilet_name, 'weight': 'bold', 'size': 'xl'},
+        ]
+        # 動態補上可用資訊
+        if item.get('toilet_type'):
+            contents.append({'type': 'text', 'text': f"🧻 類型：{item.get('toilet_type')}", 'size': 'sm', 'color': '#666666'})
+        if item.get('toilet_distance'):
+            contents.append({'type': 'text', 'text': f"📏 距離：{item.get('toilet_distance')}", 'size': 'sm', 'color': '#666666'})
+        if item.get('toilet_address'):
+            contents.append({'type': 'text', 'text': f"📍 地址：{item.get('toilet_address')}", 'size': 'sm', 'color': '#666666'})
+        if item.get('toilet_available_seats'):
+            contents.append({'type': 'text', 'text': f"🚽 廁所數量：{item.get('toilet_available_seats')}", 'size': 'sm', 'color': '#666666'})
+        if item.get('toilet_accessible_seats'):
+            contents.append({'type': 'text', 'text': f"♿ 無障礙：{item.get('toilet_accessible_seats')}", 'size': 'sm', 'color': '#666666'})
+        if item.get('toilet_family_seats'):
+            contents.append({'type': 'text', 'text': f"👨‍👩‍👧‍👦 親子：{item.get('toilet_family_seats')}", 'size': 'sm', 'color': '#666666'})
+
+        bubble = {
+            'type': 'bubble',
+            'hero': {
+                'type': 'image',
+                'url': 'https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png',
+                'size': 'full',
+                'aspectRatio': '20:13',
+                'aspectMode': 'cover'
+            },
+            'body': {
+                'type': 'box',
+                'layout': 'vertical',
+                'contents': contents
+            },
+            'footer': {
+                'type': 'box', 'layout': 'vertical', 'contents': [
+                    {'type': 'button', 'style': 'link', 'height': 'sm',
+                     'action': {'type': 'uri', 'label': 'Google Map', 'uri': google_maps_url}}
+                ]
+            }
+        }
+        bubbles.append(bubble)
+    return bubbles
+
+def get_structured_info(user_id: str, query: str) -> dict:
     try:
         llm_result = call_agent(user_id, query)
-        
         structure_result = _requests_session.post(
-            f"{llm_api_base}/get_parking_info",
+            f"{llm_api_base}/get_agent_structure_response",
             data={"query": llm_result}
         )
         structure_result.raise_for_status()
-        flex_messages = _flex_messages_wrapper(structure_result.json()['parking_list'])
-
-        return flex_messages
+        return structure_result.json()
     except requests.exceptions.RequestException as e:
         app.logger.error(f"LLM 呼叫失敗：{e}")
-        return "有一些問題發生 ... 請稍後再試"
+        return {}
+
+
+def get_structured_info_and_summary(user_id: str, query: str) -> tuple[dict, str]:
+    """
+    先呼叫 /chat 取得 llm_result，接著並行呼叫：
+    - /get_agent_structure_response → 結構化資料（JSON）
+    - /get_llm_summary → 摘要（純文字）
+    """
+    try:
+        llm_result = call_agent(user_id, query)
+        # 以併發方式同時呼叫兩個 endpoint，降低延遲
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_struct = pool.submit(
+                _requests_session.post,
+                f"{llm_api_base}/get_agent_structure_response",
+                data={"query": llm_result}
+            )
+            f_summary = pool.submit(
+                _requests_session.post,
+                f"{llm_api_base}/get_llm_summary",
+                data={"query": llm_result}
+            )
+
+            struct_resp = f_struct.result()
+            sum_resp = f_summary.result()
+
+        struct_resp.raise_for_status()
+        sum_resp.raise_for_status()
+
+        structured = struct_resp.json()
+        summary_text = sum_resp.text.strip()
+        summary_text = normalize_llm_text(summary_text)
+        return structured, summary_text
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"LLM 呼叫失敗：{e}")
+        return {}, ""
 
 
 def _push_text(user_id: str, text: str):
@@ -133,8 +231,6 @@ def _push_text(user_id: str, text: str):
 def _push_flex_message(user_id: str, alt_text: str, flex_contents: dict):
     try:
         with ApiClient(configuration) as api_client:
-            app.logger.info(f"發送 FlexMessage contents: {flex_contents}")
-            # 使用 FlexContainer 來正確創建 contents
             flex_container = FlexContainer.from_dict(flex_contents)
             MessagingApi(api_client).push_message(
                 PushMessageRequest(
@@ -156,26 +252,34 @@ def process_and_push_text(user_id: str, user_id_with_session: str, query: str):
     answer = normalize_llm_text(answer)
     _push_text(user_id, answer)
 
-
-def process_and_push_parking_info(user_id: str, query: str):
+def process_and_push_structured_info(user_id: str, user_id_with_session: str, query: str):
     """
-    背景任務：取得停車場資訊 → 發送 FlexMessage
+    背景任務：取得結構化資訊（停車/廁所） → 發送 FlexMessage
     """
     try:
-        flex_messages = get_parking_info(user_id, query)
-        if isinstance(flex_messages, str):
-            # 如果回傳錯誤訊息，使用文字訊息發送
-            _push_text(user_id, flex_messages)
-        elif isinstance(flex_messages, list) and len(flex_messages) > 0:
-            # 確保有停車場資料才發送 FlexMessage
-            flex_contents = {'type': 'carousel', 'contents': flex_messages}
-            _push_flex_message(user_id, "停車場資訊", flex_contents)
-        else:
-            # 沒有找到停車場資料
-            _push_text(user_id, "抱歉，附近沒有找到停車場資訊。")
+        structured, summary_text = get_structured_info_and_summary(user_id_with_session, query)
+        parking_list = structured.get('parking_list') or []
+        toilet_list = structured.get('toilet_list') or []
+        
+        if summary_text:
+            _push_text(user_id, summary_text)
+
+        sent_any = False
+        if isinstance(parking_list, list) and len(parking_list) > 0:
+            parking_bubbles = _parking_flex_messages_wrapper(parking_list)
+            _push_flex_message(user_id, "停車場資訊", {'type': 'carousel', 'contents': parking_bubbles})
+            sent_any = True
+        if isinstance(toilet_list, list) and len(toilet_list) > 0:
+            toilet_bubbles = _toilet_flex_messages_wrapper(toilet_list)
+            _push_flex_message(user_id, "公廁資訊", flex_contents={'type': 'carousel', 'contents': toilet_bubbles})
+            sent_any = True
+
+        if not sent_any:
+            _push_text(user_id, "抱歉，附近沒有找到停車場或公廁資訊。")
+
     except Exception as e:
-        app.logger.error(f"處理停車場資訊失敗：{e}")
-        _push_text(user_id, "抱歉，取得停車場資訊時發生錯誤，請稍後再試。")
+        app.logger.error(f"處理結構化資訊失敗：{e}")
+        _push_text(user_id, "抱歉，取得資訊時發生錯誤，請稍後再試。")
 
 
 # -----------------------------------------------------------------------------
@@ -238,7 +342,7 @@ def handle_location(event):
     lon = event.message.longitude
     city = event.message.title
     address = event.message.address
-    query = f"緯度：{lat}, 經度：{lon} {city} {address} 附近"
+    query = f"我的位置資訊是：緯度：{lat}, 經度：{lon} {city} {address} 附近"
 
     # 盡量別在這裡做耗時的事情（<= 2 秒就 return）
     with ApiClient(configuration) as api_client:
@@ -249,7 +353,7 @@ def handle_location(event):
             line_bot_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessage(text="收到定位，我來幫你找找～ ϞϞ(๑⚈ ․̫ ⚈๑)∩")],
+                    messages=[TextMessage(text="收到定位，停車寶來幫你找找目前最新資訊，可能要稍等一下下得斯 ... ϞϞ(๑⚈ ․̫ ⚈๑)∩")],
                 )
             )
         except Exception as e:
@@ -264,7 +368,7 @@ def handle_location(event):
             app.logger.warning("show loading animation failed, continue ...")
 
     # 把停車場資訊處理丟到背景（ThreadPoolExecutor）
-    executor.submit(process_and_push_parking_info, user_id, query)
+    executor.submit(process_and_push_structured_info, user_id, user_id_with_session, query)
 
 
 if __name__ == "__main__":

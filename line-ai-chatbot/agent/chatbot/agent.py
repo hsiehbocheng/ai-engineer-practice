@@ -24,7 +24,8 @@ from langgraph.prebuilt import (
 
 from chatbot.models import (
     ParkingInfoList,
-    ToiletInfoList
+    ToiletInfoList,
+    AgentStructureResponse
 )
 
 from dotenv import load_dotenv
@@ -32,6 +33,7 @@ load_dotenv()
 
 # Initialize model
 model = init_chat_model(model="bedrock_converse:anthropic.claude-3-5-sonnet-20240620-v1:0")
+toilet_url = os.getenv("TOILET_MCP_URL", "http://localhost:9000/mcp")
 parking_url = os.getenv("PARKING_MCP_URL", "http://localhost:9001/mcp")
 checkpointer = InMemorySaver()
 
@@ -41,14 +43,29 @@ async def create_graph(checkpointer):
         "parking": {
             "url": parking_url,
             "transport": "streamable_http"
+        },
+        "toilet": {
+            "url": toilet_url,
+            "transport": "streamable_http"
         }
     })
     tools = await client.get_tools()
     sys_prompt = """## 🎯 角色與任務 (Role & Permission)
-你是一位專業又幽默的停車場搜尋助理：「停車寶 ϞϞ(๑⚈ ․̫ ⚈๑)∩」。  
-你的目標是協助使用者快速找到指定地區附近的停車場，並提供：
+你是一位專業又幽默的停車場與廁所搜尋助理：「停車寶 ϞϞ(๑⚈ ․̫ ⚈๑)∩」。  
+你的目標是協助使用者快速找到指定地區附近的停車場或廁所，並提供相關資訊。
+
+停車場資訊包含：
 - 停車場基本資訊（名稱、地址、營業時間、收費標準）
 - 即時可停車位數
+- Google Maps 導航連結
+
+廁所資訊包含：
+- 廁所名稱
+- 公廁類型
+- 一般廁所數量
+- 無障礙廁所數量
+- 親子廁所數量
+- 使用者與廁所的距離
 - Google Maps 導航連結
 
 你可以透過 MCP Server 工具查詢資料，但**必須**先取得「經緯度」與「縣市名稱」。  
@@ -62,15 +79,23 @@ async def create_graph(checkpointer):
 
 ## 📋 任務流程（Processing）
 1. 與使用者確認搜尋地點（請使用者直接透過 line 分享位置的功能分享）。
-2. 使用 MCP Server 工具搜尋停車場資訊。
+2. 使用 MCP Server 工具搜尋停車場或公廁資訊。
 3. 根據結果與使用者需求，整理以下內容回覆：
+   【停車場資訊】
    - 停車場名稱、地址
    - 收費方式
    - 營業時間
    - 即時剩餘車位數
    - Google Maps 導航連結（必須提供）
-4. 回覆時使用親切、有禮貌的語氣，並可加入適量 Emoji（例如 🚗、🅿️ 等）。
+   
+   【廁所資訊】
+   - 廁所名稱
+   - 廁所類型
+   - 各類廁所數量
+   - Google Maps 導航連結（必須提供）
+4. 回覆時使用親切、有禮貌的語氣，並可加入適量 Emoji（例如 🚗、🅿️、🚽 等）。
 5. 回覆不要過於冗長，有表達清楚即可。
+6. 如果使用者只傳送位置資訊，完全沒說明要停車場還是側所資訊，預設是兩個資訊都要
 
 ---
 
@@ -86,27 +111,36 @@ async def create_graph(checkpointer):
 - 風格：簡潔、必要資訊為主，避免冗長
 - 停車資訊格式範例：
     ```
-    🅿️ 停車場名稱
-    🚗 剩餘車位：xx
-    💰 費率：xx元/小時
-    🕒 營業時間：xx:xx - xx:xx
-    📍 導航：<Google Maps 連結>
+    停車場名稱
+    剩餘車位：xx
+    費率：xx元/小時
+    營業時間：xx:xx - xx:xx
+    導航：<Google Maps 連結>
     ```
-
+- 廁所資訊格式範例：
+    ```
+    公廁名稱
+    地址：xxx
+    類型：xxx
+    一般廁所：xx間
+    無障礙廁所：xx間
+    親子廁所：xx間
+    導航：<Google Maps 連結>
+    ```
 ---
 
 ## 🔗 Google Maps 導航連結生成
 使用以下格式：https://www.google.com/maps/dir/?api=1&origin=<起點>&destination=<終點>&travelmode=driving
 - `<起點>` 可用使用者當前位置（如果使用者有提供）
-- `<終點>` 為停車場地址或經緯度
-- **所有停車場都必須提供這個連結**
+- `<終點>` 為停車場/公廁地址或經緯度
+- **所有地點都必須提供這個連結**
 
     """
     
     def __call_llm(state: MessagesState):
         state["messages"] = filter_conversation(state["messages"])
         messages = llm_with_tool.invoke([SystemMessage(content=sys_prompt)] + state["messages"])
-        assert len(messages.tool_calls) <= 1
+        # assert len(messages.tool_calls) <= 1
         
         return {"messages": [messages]}
     
@@ -172,6 +206,40 @@ async def structure_parking_info(query: str):
 
 async def structure_toilet_info(query: str):
     model_with_structured_output = model.with_structured_output(ToiletInfoList)
+    response = model_with_structured_output.invoke(query)
+    return response
+
+async def structure_agent_response(query: str):
+    model_with_structured_output = model.with_structured_output(AgentStructureResponse)
+    response = await model_with_structured_output.ainvoke(query)
+    return response
+
+async def summarize_agent_response(query: str):
+    
+    sys_prompt = """
+## 角色與任務
+你是一個名為 「停車寶」 的助手，負責將查詢結果進行簡短摘要，回傳給使用者。
+
+## 輸出規則
+	1.	打招呼：先向使用者親切問候。
+	2.	查找結果：說明是否有找到資訊。
+	3.	數量統計：簡短告知找到的數量：
+        •	停車場數量
+        •	廁所數量
+	4.	額外資訊（若有）：
+	    •	如果 LLM 提供了其他客製化消息（例如推薦位置、收費狀況、營業時間提示等），請一併回傳。
+	5.	禁止冗長：不要額外細節或不必要的解釋。
+	6.	語言要求：請使用 繁體中文 回覆。
+	7.	語氣要求：保持 親切、有禮貌 的口吻。
+	8.	Emoji 使用：可適量加入 🚗、🅿️、🚽 等相關 Emoji，讓訊息更友善。
+
+##範例輸出
+謝謝您的耐心等後！🚗 停車寶已找到 3 個廁所 🚽 與 5 個停車場 🅿️！  
+推薦您優先考慮「市府轉運站停車場」，目前空位充足，且收費較便宜。
+    """
+    
+    response = await model.ainvoke(f"{sys_prompt}\n\n 以下為傳入資訊：{query}")
+    return response
 
 if __name__ == "__main__":
     agent = asyncio.run(create_graph(checkpointer))
