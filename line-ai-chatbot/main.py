@@ -169,20 +169,6 @@ def _toilet_flex_messages_wrapper(data: list[dict]) -> list[dict]:
         bubbles.append(bubble)
     return bubbles
 
-def get_structured_info(user_id: str, query: str) -> dict:
-    try:
-        llm_result = call_agent(user_id, query)
-        structure_result = _requests_session.post(
-            f"{llm_api_base}/get_agent_structure_response",
-            data={"query": llm_result}
-        )
-        structure_result.raise_for_status()
-        return structure_result.json()
-    except requests.exceptions.RequestException as e:
-        app.logger.error(f"LLM 呼叫失敗：{e}")
-        return {}
-
-
 def get_structured_info_and_summary(user_id: str, query: str) -> tuple[dict, str]:
     """
     先呼叫 /chat 取得 llm_result，接著並行呼叫：
