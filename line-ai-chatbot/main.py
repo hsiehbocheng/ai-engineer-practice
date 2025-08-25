@@ -1,4 +1,5 @@
 from curses import tigetflag
+from math import floor
 import os
 import requests
 from concurrent.futures import ThreadPoolExecutor
@@ -46,8 +47,8 @@ line_channel_secret = os.getenv("LINE_CHANNEL_SECRET")
 llm_api_base = os.getenv("LLM_API_BASE", "http://localhost:8000")
 gcp_credentials_path = os.getenv("GCP_CREDENTIALS_PATH")
 gcp_sheet_key = os.getenv("GCP_SHEET_KEY")
-poop_img_url = os.getenv("POOP_IMG_URL")
-parking_img_url = os.getenv("PARKING_IMG_URL")
+poop_img_url = os.getenv("POOP_IMG_URL", default="https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png")
+parking_img_url = os.getenv("PARKING_IMG_URL", default="https://developers-resource.landpress.line.me/fx/img/01_1_cafe.png")
 
 # Line bot init
 app = Flask(__name__)
@@ -140,6 +141,32 @@ def _parking_flex_messages_wrapper(data: list[dict]) -> list[dict]:
 
 def _toilet_flex_messages_wrapper(data: list[dict]) -> list[dict]:
     bubbles = []
+    # 從 Google Sheet 讀取評分並建立平均分數快取
+    score_map: dict[str, float] = {}
+    try:
+        data_rows = sheet.get_all_values()
+        if len(data_rows) > 1:
+            headers = data_rows[0]
+            name_idx = headers.index("地點") if "地點" in headers else None
+            score_idx = headers.index("評分") if "評分" in headers else None
+            if name_idx is not None and score_idx is not None:
+                total_score: dict[str, float] = {}
+                total_count: dict[str, int] = {}
+                for r in data_rows[1:]:
+                    if len(r) <= max(name_idx, score_idx):
+                        continue
+                    name = r[name_idx]
+                    try:
+                        s = float(r[score_idx])
+                    except Exception:
+                        continue
+                    total_score[name] = total_score.get(name, 0.0) + s
+                    total_count[name] = total_count.get(name, 0) + 1
+                for name, cnt in total_count.items():
+                    if cnt > 0:
+                        score_map[name] = total_score[name] / cnt
+    except Exception as e:
+        app.logger.error(f"讀取評分失敗：{e}")
     for item in data:
         toilet_name = item.get('toilet_name', '公廁')
         # 使用名稱或地址做為搜尋字串
@@ -151,6 +178,12 @@ def _toilet_flex_messages_wrapper(data: list[dict]) -> list[dict]:
         contents = [
             {'type': 'text', 'text': toilet_name, 'weight': 'bold', 'size': 'xl'},
         ]
+        # 追加顯示平均評分或尚無分數
+        avg_score = score_map.get(toilet_name)
+        if avg_score is not None:
+            contents.append({'type': 'text', 'text': f"評分：{round(avg_score,1)} {'💩'*int(round(avg_score,1))}", 'size': 'sm', 'color': '#666666'})
+        else:
+            contents.append({'type': 'text', 'text': "評分：尚無分數 💩", 'size': 'sm', 'color': '#666666'})
         # 動態補上可用資訊
         if item.get('toilet_type'):
             contents.append({'type': 'text', 'text': f"🧻 類型：{item.get('toilet_type')}", 'size': 'sm', 'color': '#666666'})
@@ -233,6 +266,40 @@ def get_structured_info_and_summary(user_id: str, query: str) -> tuple[dict, str
         return {}, ""
 
 
+def get_structured_info_and_summary_from_llm_result(llm_result: str) -> tuple[dict, str]:
+    """
+    已取得 llm_result 的情況下，直接併發呼叫：
+    - /get_agent_structure_response → 結構化資料（JSON）
+    - /get_llm_summary → 摘要（純文字）
+    """
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_struct = pool.submit(
+                _requests_session.post,
+                f"{llm_api_base}/get_agent_structure_response",
+                data={"query": llm_result}
+            )
+            f_summary = pool.submit(
+                _requests_session.post,
+                f"{llm_api_base}/get_llm_summary",
+                data={"query": llm_result}
+            )
+
+            struct_resp = f_struct.result()
+            sum_resp = f_summary.result()
+
+        struct_resp.raise_for_status()
+        sum_resp.raise_for_status()
+
+        structured = struct_resp.json()
+        summary_text = sum_resp.text.strip()
+        summary_text = normalize_llm_text(summary_text)
+        return structured, summary_text
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"LLM 呼叫失敗：{e}")
+        return {}, ""
+
+
 def _push_text(user_id: str, text: str):
     with ApiClient(configuration) as api_client:
         MessagingApi(api_client).push_message(
@@ -264,7 +331,36 @@ def process_and_push_text(user_id: str, user_id_with_session: str, query: str):
     """
     answer = call_agent(user_id=user_id_with_session, query=query)
     answer = normalize_llm_text(answer)
-    _push_text(user_id, answer)
+    
+    keyword = "停車寶已為尼找到相關資訊"
+    if keyword in answer:
+        # 命中關鍵字：僅執行 structure & summary，不推送原始文字
+        try:
+            structured, summary_text = get_structured_info_and_summary_from_llm_result(answer)
+            parking_list = structured.get('parking_list') or []
+            toilet_list = structured.get('toilet_list') or []
+
+            if summary_text:
+                _push_text(user_id, summary_text)
+
+            sent_any = False
+            if isinstance(parking_list, list) and len(parking_list) > 0:
+                parking_bubbles = _parking_flex_messages_wrapper(parking_list)
+                _push_flex_message(user_id, "停車場資訊", {'type': 'carousel', 'contents': parking_bubbles})
+                sent_any = True
+            if isinstance(toilet_list, list) and len(toilet_list) > 0:
+                toilet_bubbles = _toilet_flex_messages_wrapper(toilet_list)
+                _push_flex_message(user_id, "公廁資訊", flex_contents={'type': 'carousel', 'contents': toilet_bubbles})
+                sent_any = True
+
+            if not sent_any:
+                _push_text(user_id, "抱歉，附近沒有找到停車場或公廁資訊。")
+        except Exception as e:
+            app.logger.error(f"處理結構化資訊失敗：{e}")
+            _push_text(user_id, "抱歉，取得資訊時發生錯誤，請稍後再試。")
+    else:
+        # 未命中關鍵字：照舊直接推送原始文字
+        _push_text(user_id, answer)
 
 def process_and_push_structured_info(user_id: str, user_id_with_session: str, query: str):
     """
@@ -383,6 +479,9 @@ def handle_message(event):
 
             bubbles = []
             for idx, row in avg_score.iterrows():
+                encoded = quote(row["地點"], safe='')
+                google_maps_url = f"https://maps.google.com/maps?q={encoded}"
+                google_maps_url = _ensure_valid_action_uri(google_maps_url)
                 bubble = {
                     "type": "bubble",
                     "body": {
@@ -391,7 +490,19 @@ def handle_message(event):
                         "contents": [
                             {"type": "text", "text": f"🏆 No.{len(bubbles)+1}", "weight": "bold", "size": "lg"},
                             {"type": "text", "text": row["地點"], "weight": "bold", "size": "xl", "wrap": True},
-                            {"type": "text", "text": f"平均分數：{round(row['評分'],1)} 💩", "size": "md", "color": "#666666"}
+                            {"type": "text", "text": f"平均分數：{round(row['評分'],1)} {'💩'*int(round(row['評分'],1))}", "size": "md", "color": "#666666"}
+                        ]
+                    },
+                    "footer": {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {
+                                "type": "button",
+                                "style": "link",
+                                "height": "sm",
+                                "action": {"type": "uri", "label": "Google Map 🗺️", "uri": google_maps_url}
+                            }
                         ]
                     }
                 }
