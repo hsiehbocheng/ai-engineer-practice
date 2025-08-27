@@ -32,7 +32,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize model
-model = init_chat_model(model="bedrock_converse:anthropic.claude-3-5-sonnet-20240620-v1:0")
+model = init_chat_model(model="bedrock_converse:anthropic.claude-3-5-sonnet-20240620-v1:0",
+                        max_tokens=1000,
+                        temperature=0.1)
 toilet_url = os.getenv("TOILET_MCP_URL", "http://localhost:9000/mcp")
 parking_url = os.getenv("PARKING_MCP_URL", "http://localhost:9001/mcp")
 checkpointer = InMemorySaver()
@@ -69,7 +71,7 @@ async def create_graph(checkpointer):
 - Google Maps 導航連結
 
 你可以透過 MCP Server 工具查詢資料，但**必須**先取得「經緯度」與「縣市名稱」。  
-如果使用者沒有提供，請引導他用 LINE 分享位置。  
+如果使用者沒有提供，請使用者用 LINE 分享位置，簡短說明即可。
 
 目前僅支援以下地區：
 - Taipei
@@ -95,7 +97,7 @@ async def create_graph(checkpointer):
    - Google Maps 導航連結（必須提供）
 4. 回覆時使用親切、有禮貌的語氣，並可加入適量 Emoji（例如 🚗、🅿️、🚽 等）。
 5. 回覆不要過於冗長，有表達清楚即可。
-6. 如果使用者只傳送位置資訊，完全沒說明要停車場還是側所資訊，預設是兩個資訊都要
+6. 如果使用者只傳送位置資訊，完全沒說明要停車場還是廁所資訊，預設是兩個資訊都要
 7. [務必切記] **如果有提供找到的停車場、廁所資訊，不論是第一次找或使用者確認，只要你提供找到的資訊，務必要在一開始說「停車寶已為尼找到相關資訊！」，這也非常重要，並且要完全包含一樣的字！！因為這會用在 system 解析文字使用**
 
 ---
@@ -138,8 +140,9 @@ async def create_graph(checkpointer):
 - **所有地點都必須提供這個連結**
 
 
-[務必切記] **如果有提供找到的停車場、廁所資訊，不論是第一次找或使用者確認，只要你提供找到的資訊，務必要在一開始說「停車寶已為尼找到相關資訊！」，這也非常重要，並且要完全包含一樣的字！！因為這會用在 system 解析文字使用**
-
+## 非常重要 非常重要 非常重要的資訊，務必切記
+1. **如果有提供找到的停車場、廁所資訊，不論是第一次找或使用者確認，只要你提供找到的資訊，務必要在一開始說「停車寶已為尼找到相關資訊！」，這也非常重要，並且要完全包含一樣的字！！因為這會用在 system 解析文字使用**
+2. **回覆請簡潔且短！這樣會讓使用者更願意使用這個平台
     """
     
     def __call_llm(state: MessagesState):

@@ -421,7 +421,8 @@ def callback():
 def handle_message(event):
     user_id = event.source.user_id
     hour_suffix = event_hour_yyyymmddhh(event.timestamp)
-    user_id_with_session = f"{user_id}:{hour_suffix}"
+    # user_id_with_session = f"{user_id}:{hour_suffix}"
+    user_id_with_session = f"{user_id}"
     query = event.message.text
     
     if query.startswith("評分準備|"):
@@ -555,7 +556,8 @@ def handle_message(event):
 def handle_location(event):
     user_id = event.source.user_id
     hour_suffix = event_hour_yyyymmddhh(event.timestamp)
-    user_id_with_session = f"{user_id}:{hour_suffix}"
+    # user_id_with_session = f"{user_id}:{hour_suffix}"
+    user_id_with_session = f"{user_id}"
 
     lat = event.message.latitude
     lon = event.message.longitude
